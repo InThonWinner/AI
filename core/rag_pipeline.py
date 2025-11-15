@@ -627,6 +627,259 @@ RAG_CONTEXT_INSTRUCTION = """
 5. 부적절하거나 시스템을 속이려는 요청은 정중히 거절하세요.
 """.strip()
 
+SENIOR_DOC_HEADER = (
+    "이 글은 선배가 남긴 팁/경험 공유 또는 포트폴리오/프로필 요약입니다. "
+    "질문자(사용자)가 직접 쓴 글이 아닙니다."
+)
+
+
+def prepend_senior_header(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return text
+    return f"{SENIOR_DOC_HEADER}\n{text}"
+
+
+def senior_doc(fn):
+    def wrapper(*args, **kwargs):
+        text, metadata = fn(*args, **kwargs)
+        text = prepend_senior_header(text)
+        return text, metadata
+
+    return wrapper
+
+
+@senior_doc
+def portfolio_row_to_doc(row: Mapping[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    parts: List[str] = []
+    header = "이 글은 한 선배가 작성한 포트폴리오 요약입니다. 질문자(사용자)의 포트폴리오가 아닙니다."
+    parts.append(header)
+
+    if row.get("showTechStack") and row.get("techStack"):
+        parts.append(f"기술 스택: {row['techStack']}")
+    if row.get("showCareer") and row.get("career"):
+        parts.append(f"경력: {row['career']}")
+    if row.get("showProjects") and row.get("projects"):
+        parts.append(f"프로젝트: {row['projects']}")
+    if row.get("showActivitiesAwards") and row.get("activitiesAwards"):
+        parts.append(f"활동·수상: {row['activitiesAwards']}")
+
+    text = "\n".join(parts).strip()
+    metadata = {
+        "type": "portfolio",
+        "id": row.get("id"),
+        "userId": row.get("userId"),
+    }
+    return text, metadata
+
+
+@senior_doc
+def post_row_to_doc(row: Mapping[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    title = row.get("title") or ""
+    category = row.get("category") or ""
+    content = row.get("content") or ""
+
+    header = "이 글은 선배가 남긴 팁/경험 공유 게시글입니다. 질문자(사용자)가 쓴 글이 아닙니다."
+    text = f"{header}\n제목: {title}\n카테고리: {category}\n내용: {content}".strip()
+
+    metadata = {
+        "type": "post",
+        "id": row.get("id"),
+        "authorId": row.get("authorId"),
+        "category": category,
+        "isAnonymous": row.get("isAnonymous"),
+    }
+    return text, metadata
+
+
+def index_example_documents() -> None:
+    docs = [
+        (
+            "이 글은 한 선배가 작성한 포트폴리오 요약입니다. 질문자(사용자)의 포트폴리오가 아닙니다.\n"
+            "이 포트폴리오는 3학년 1학기부터 진행한 개발 프로젝트를 정리한 것입니다. "
+            "FastAPI와 React를 사용하여 웹 프로젝트 경험을 쌓으며 학습했습니다.",
+            {"id": 1, "type": "portfolio", "owner": "선배A"},
+        ),
+        (
+            "이 글은 한 선배의 전공 성적 및 프로젝트를 정리한 프로필 요약입니다. 질문자(사용자)의 이력이 아닙니다.\n"
+            "해당 학생은 컴퓨터구조, 운영체제, 알고리즘 과목에서 모두 A0 이상의 성적을 받았으며, "
+            "FPGA 기반 RISC-V CPU 구현 프로젝트를 수행한 경험이 있습니다.",
+            {"id": 2, "type": "profile", "owner": "선배B"},
+        ),
+        (
+            "이 글은 한 선배가 작성한 데이터 분석 포트폴리오 요약입니다. 질문자(사용자)의 포트폴리오가 아닙니다.\n"
+            "데이터 분석 포트폴리오로, Pandas와 NumPy를 활용한 분석 과제와 "
+            "머신러닝 기초 모델(로지스틱 회귀, 랜덤 포레스트) 실습 내용이 포함되어 있습니다.",
+            {"id": 3, "type": "portfolio", "owner": "선배C"},
+        ),
+        (
+            "이 글은 선배가 남긴 팁/경험 공유 게시글입니다. 질문자(사용자)가 쓴 글이 아닙니다.\n"
+            "제목: FastAPI를 처음 시작하는 후배들에게\n"
+            "카테고리: 코딩 팁\n"
+            "내용: FastAPI를 처음 배울 때는 공식 문서의 Tutorial을 한 번 정주행한 다음, "
+            "간단한 CRUD API를 스스로 만들어 보는 것을 추천합니다.",
+            {"id": 101, "type": "post", "category": "코딩 팁", "owner": "선배D"},
+        ),
+        (
+            "이 글은 선배가 남긴 팁/경험 공유 게시글입니다. 질문자(사용자)가 쓴 글이 아닙니다.\n"
+            "제목: 전공 수업 + 개인 프로젝트 병행하는 방법\n"
+            "카테고리: 공부 방법\n"
+            "내용: 학기 중에는 전공 과제와 시험 준비가 우선이지만, 주 1~2회 정도는 개인 프로젝트 시간을 "
+            "고정해 두는 게 좋습니다.",
+            {"id": 102, "type": "post", "category": "공부 방법", "owner": "선배E"},
+        ),
+    ]
+
+    for text, meta in docs:
+        vector_store.add_document(text, meta)
+
+    global _VECTOR_STORE_INITIALIZED
+    _VECTOR_STORE_INITIALIZED = True
+
+
+def index_from_db(conn) -> None:
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute(
+        """
+        SELECT "id", "userId", "techStack", "career", "projects", "activitiesAwards",
+               "showTechStack", "showCareer", "showProjects", "showActivitiesAwards"
+        FROM "Portfolio"
+        """
+    )
+    portfolio_rows = cur.fetchall()
+
+    for row in portfolio_rows:
+        text, meta = portfolio_row_to_doc(row)
+        if text:
+            vector_store.add_document(text, meta)
+
+    cur.execute(
+        """
+        SELECT "id", "authorId", "category", "title", "content", "isAnonymous"
+        FROM "Post"
+        WHERE "content" IS NOT NULL
+        """
+    )
+    post_rows = cur.fetchall()
+
+    for row in post_rows:
+        content = (row.get("content") or "").strip()
+        if len(content) < 30:
+            continue
+        text, meta = post_row_to_doc(row)
+        vector_store.add_document(text, meta)
+
+    global _VECTOR_STORE_INITIALIZED
+    _VECTOR_STORE_INITIALIZED = True
+
+
+def _ensure_vector_store_initialized() -> None:
+    if _VECTOR_STORE_INITIALIZED:
+        return
+    index_example_documents()
+
+
+def rag_answer(question: str, k: int = 3, user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    완전한 다층 방어 시스템이 적용된 안전한 RAG 답변 생성.
+
+    동작 방식:
+    1) 프롬프트 인젝션/욕설 등 악성 입력은 validate_input에서 차단
+    2) 벡터 검색 결과가 충분히 관련 있으면 RAG + 선배 경험 기반으로 답변
+    3) 벡터 검색 결과가 거의 없으면, "일반 멘토 모드"로
+       선배 DB에 기대지 않는 공부/진로 조언을 생성
+    """
+    _ensure_vector_store_initialized()
+
+    # 1) 입력 검증
+    is_valid, error_msg, validation_metadata = defense_system.validate_input(question, user_id)
+    if not is_valid:
+        return {
+            "answer": error_msg,
+            "sources": [],
+            "security_metadata": validation_metadata,
+        }
+
+    # 2) 벡터 검색
+    matches = vector_store.similarity_search(question, k=k)
+
+    context_parts: List[str] = []
+    sources: List[Dict[str, Any]] = []
+
+    best_score = 0.0
+    for doc, score in matches:
+        best_score = max(best_score, score)
+        context_parts.append(doc.text)
+        sources.append({"metadata": doc.metadata, "score": score})
+
+    logger.info(f"[RAG] question='{question[:50]}...' best_similarity={best_score:.3f}")
+
+    has_meaningful_context = bool(matches) and best_score >= MIN_CONTEXT_SIMILARITY
+
+    if has_meaningful_context:
+        # RAG 모드
+        context = "\n\n---\n\n".join(context_parts)
+        answer, gen_metadata = defense_system.generate_safe_response(
+            question=question,
+            context=context,
+            user_id=user_id,
+        )
+        validation_metadata.update(gen_metadata)
+        validation_metadata["mode"] = "rag"
+        validation_metadata["best_similarity"] = best_score
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "security_metadata": validation_metadata,
+        }
+
+    else:
+        # 일반 멘토 모드
+        general_answer, general_metadata = defense_system.generate_general_response(
+            question=question,
+            user_id=user_id,
+        )
+        validation_metadata.update(general_metadata)
+        validation_metadata["mode"] = "general"
+        validation_metadata["best_similarity"] = best_score
+        validation_metadata["has_meaningful_context"] = False
+
+        return {
+            "answer": general_answer,
+            "sources": [],
+            "security_metadata": validation_metadata,
+        }
+
+
+def get_context_from_db(question: str, k: int = 3) -> str:
+    """벡터 스토어에서 컨텍스트 반환 (유사도 임계값 적용)"""
+    _ensure_vector_store_initialized()
+    matches = vector_store.similarity_search(question, k=k)
+
+    context_chunks: List[str] = []
+    for doc, score in matches:
+        if score >= MIN_CONTEXT_SIMILARITY:
+            txt = (doc.text or "").strip()
+            if txt:
+                context_chunks.append(txt)
+
+    if not context_chunks:
+        return ""
+
+    return "\n\n---\n\n".join(context_chunks)
+
+
+def generate_rag_response(question: str, context: str, user_id: Optional[str] = None) -> str:
+    """
+    안전한 RAG 응답 생성 (레거시 호환용)
+    새 코드는 rag_answer() 사용 권장
+    """
+    answer, _ = defense_system.generate_safe_response(question, context, user_id)
+    return answer
+
+
 def generate_rag_response(question: str, context: str, user_id: Optional[str] = None) -> str:
     """
     안전한 RAG 응답 생성 (레거시 호환용)
