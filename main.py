@@ -156,17 +156,5 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    
-    print(f"=" * 50)
-    print(f"🚀 FastAPI Server Starting")
-    print(f"📍 Host: 0.0.0.0")
-    print(f"🔌 Port: {port}")
-    print(f"=" * 50)
-    
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info"
-    )
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
