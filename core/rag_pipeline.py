@@ -225,141 +225,6 @@ class ConstitutionalAI:
             return initial_response
 
 
-# 대화 타입 분류기 (가벼운 패턴용)
-class ConversationClassifier:
-    """사용자 입력의 의도를 분류"""
-
-    CASUAL_GREETINGS = [
-        r'^(안녕|하이|hello|hi|헬로|방가|ㅎㅇ)[\s!?]*$',
-        r'^(안녕하세요|반갑습니다|처음\s*뵙겠습니다)[\s!?]*$',
-        r'^(좋은\s*(아침|점심|저녁|하루))[\s!?]*$',
-    ]
-
-    CASUAL_THANKS = [
-        r'^(고마워|감사|땡큐|thanks?|thx)[\s!?]*$',
-        r'^(고맙습니다|감사합니다)[\s!?]*$',
-    ]
-
-    CASUAL_GOODBYE = [
-        r'^(잘\s*가|바이|bye|굿바이|안녕히)[\s!?]*$',
-        r'^(다음에\s*봐|또\s*봐)[\s!?]*$',
-    ]
-
-    FEATURE_INQUIRY = [
-        r'(뭐|무엇|어떤\s*것).*할\s*수\s*있',
-        r'기능.*뭐',
-        r'어떻게.*사용',
-        r'사용법',
-        r'도움.*받',
-    ]
-
-    @classmethod
-    def classify(cls, text: str) -> str:
-        """
-        대화 타입 분류
-        Returns: "greeting" | "thanks" | "goodbye" | "feature_inquiry" | "study_question"
-        """
-        text_lower = text.lower().strip()
-
-        for pattern in cls.CASUAL_GREETINGS:
-            if re.match(pattern, text_lower, re.IGNORECASE):
-                return "greeting"
-
-        for pattern in cls.CASUAL_THANKS:
-            if re.match(pattern, text_lower, re.IGNORECASE):
-                return "thanks"
-
-        for pattern in cls.CASUAL_GOODBYE:
-            if re.match(pattern, text_lower, re.IGNORECASE):
-                return "goodbye"
-
-        for pattern in cls.FEATURE_INQUIRY:
-            if re.search(pattern, text_lower, re.IGNORECASE):
-                return "feature_inquiry"
-
-        return "study_question"
-
-
-# LLM 기반 Intent Router (멘토링 vs 개념설명 vs 캐주얼)
-class LLMIntentRouter:
-    """
-    LLM에게 맡기는 고수준 Intent 분류기.
-
-    intent 후보:
-    - mentoring: 진로/공부 방향/포트폴리오/스택 선택/프로젝트 고민 등
-    - concept_explanation: "X가 뭐야?", "정의 알려줘" 같은 순수 개념 설명 요구
-    - casual: "배고파", "하하하", 잡담 등
-    - other: 위에 딱 안 맞는 기타 케이스
-    """
-
-    @staticmethod
-    def classify_intent(user_input: str) -> Tuple[str, Dict[str, Any]]:
-        intent_prompt = f"""
-당신은 대학생 멘토링 챗봇의 인텐트 라우터입니다.
-다음 사용자의 한 문장을 읽고, 의도를 분류하세요.
-
-분류 규칙:
-1. "mentoring"
-   - 진로, 공부 방향, 포트폴리오, 프로젝트, 기술 스택 선택, 전공 선택 등
-   - 예: "백엔드 개발자가 되려면 뭘 공부해야 해?"
-   - 예: "알고리즘 공부 루트 추천해줘"
-
-2. "concept_explanation"
-   - 특정 개념 자체의 정의/이론 설명을 요구
-   - 예: "냅색 알고리즘이 뭐야?", "DP가 뭔지 설명해줘"
-   - 예: "TCP랑 UDP 차이 알려줘"
-
-3. "casual"
-   - 그냥 잡담, 감정 표현, 농담, 감탄 등
-   - 예: "배고파...", "하하하", "요즘 너무 힘들다"
-
-4. "other"
-   - 위 3가지에 명확히 속하지 않는 경우
-
-사용자 입력: "{user_input}"
-
-반드시 이 JSON 형식으로만 답하세요:
-{{
-  "intent": "mentoring" | "concept_explanation" | "casual" | "other",
-  "reason": "이렇게 분류한 이유를 한국어로 간단히 설명",
-  "sentiment": "positive" | "neutral" | "negative"
-}}
-"""
-
-        try:
-            response = call_guard_llm(intent_prompt)
-
-            response_clean = response.strip()
-            if response_clean.startswith("```json"):
-                response_clean = response_clean[7:]
-            if response_clean.endswith("```"):
-                response_clean = response_clean[:-3]
-            response_clean = response_clean.strip()
-
-            data = json.loads(response_clean)
-
-            intent = data.get("intent", "mentoring")
-            reason = data.get("reason", "")
-            sentiment = data.get("sentiment", "neutral")
-
-            details = {
-                "intent": intent,
-                "reason": reason,
-                "sentiment": sentiment,
-            }
-
-            logger.info(
-                f"[IntentRouter] intent={intent}, sentiment={sentiment}, input='{user_input[:40]}...'"
-            )
-
-            return intent, details
-
-        except Exception as e:
-            logger.error(f"[IntentRouter] Error: {e}")
-            # 문제 생기면 기본값은 mentoring 취급
-            return "mentoring", {"error": str(e)}
-
-
 # 통합 방어 시스템 (패턴차단 + 악의성 + 응답 검증)
 class MultiLayerDefenseSystem:
     """
@@ -372,8 +237,6 @@ class MultiLayerDefenseSystem:
         self.pattern_validator = PatternBasedValidator()
         self.llm_guard = LLMGuardScorer()
         self.constitutional_ai = ConstitutionalAI()
-        self.classifier = ConversationClassifier()
-        self.intent_router = LLMIntentRouter()
 
     def validate_input(
         self,
@@ -421,83 +284,6 @@ class MultiLayerDefenseSystem:
         logger.info(f"[Validation PASS] llm_score={llm_score}")
         return True, "", metadata
 
-    def handle_casual_conversation(self, conv_type: str, user_input: str) -> str:
-        """인사/감사/작별/기능문의 등 가벼운 대화 처리"""
-
-        if conv_type == "greeting":
-            import random
-            responses = [
-                "안녕하세요! 😊 오늘은 어떤 공부가 궁금하신가요?",
-                "반갑습니다! 진로나 개발 공부에 대해 궁금한 점이 있으신가요?",
-                "안녕하세요! 선배들의 경험을 바탕으로 도움을 드릴 수 있어요. 무엇이 궁금하신가요?",
-            ]
-            return random.choice(responses)
-
-        elif conv_type == "thanks":
-            import random
-            responses = [
-                "도움이 되었다니 기쁩니다! 😊 또 궁금한 점이 있으면 언제든지 물어보세요.",
-                "천만에요! 공부하시다가 막히는 부분이 있으면 다시 찾아주세요.",
-                "별말씀을요! 앞으로도 진로나 공부에 대해 궁금한 점이 있으면 편하게 물어보세요.",
-            ]
-            return random.choice(responses)
-
-        elif conv_type == "goodbye":
-            import random
-            responses = [
-                "좋은 하루 되세요! 공부 화이팅입니다! 💪",
-                "다음에 또 만나요! 열심히 공부하시길 응원할게요!",
-                "안녕히 가세요! 언제든지 궁금한 점이 있으면 찾아와 주세요.",
-            ]
-            return random.choice(responses)
-
-        elif conv_type == "feature_inquiry":
-            return """저는 이런 걸 도와드릴 수 있어요! 😊
-
-📚 **공부 방법 추천**
-- "FastAPI 어떻게 공부해야 할까요?"
-- "알고리즘 공부 순서 추천해주세요"
-
-💼 **진로 상담**
-- "백엔드 개발자가 되려면 어떤 공부를 해야 하나요?"
-- "데이터 분석가 포트폴리오 어떻게 만들죠?"
-
-🛠️ **기술 스택 조언**
-- "React와 Vue 중 어떤 걸 배워야 할까요?"
-- "프로젝트에 어떤 기술을 사용하면 좋을까요?"
-
-💡 **프로젝트 아이디어**
-- "포트폴리오용 프로젝트 추천해주세요"
-- "처음 프로젝트 시작할 때 주의할 점은?"
-
-선배들의 실제 경험을 바탕으로 답변드리니, 편하게 물어보세요!"""
-
-        return ""
-
-    def handle_intent_casual(self, user_input: str) -> str:
-        """
-        LLM Intent Router가 'casual'로 분류한 경우.
-        ex) "배고파", "하하하", "요즘 힘들다"
-        """
-        # 여기서는 그냥 가볍게 받아주고, 공부/진로 질문으로 유도
-        return (
-            "그럴 수 있죠 🥲 이런 얘기도 편하게 해주세요.\n"
-            "혹시 진로나 공부 방향에 대해서도 고민되는 게 있다면, 선배들 경험을 바탕으로 같이 이야기해볼까요?"
-        )
-
-    def handle_intent_concept_explanation(self, user_input: str) -> str:
-        """
-        순수 개념 설명 요청인 경우, 서비스 목적에 맞게 컷.
-        ex) "냅색 알고리즘이 뭐야", "DP가 뭐야" 등
-        """
-        return (
-            "지금 이 서비스는 '선배들의 경험을 바탕으로 진로/공부 방향을 같이 설계해주는 멘토링'에 초점이 맞춰져 있어서\n"
-            "교과서처럼 개념을 자세히 설명해주는 용도는 아니에요.\n\n"
-            "대신, 그 개념을 **어떤 순서로 공부하면 좋은지**, "
-            "**어떤 프로젝트/과목과 연결하면 좋은지** 같이\n"
-            "공부 방향이나 포트폴리오 관점에서의 질문이라면 얼마든지 도와줄 수 있어요! 😊"
-        )
-
     def generate_safe_response(
         self,
         question: str,
@@ -506,15 +292,7 @@ class MultiLayerDefenseSystem:
     ) -> Tuple[str, Dict[str, Any]]:
         """안전한 응답 생성 (모든 방어 레이어 적용, RAG 모드)"""
 
-        # 대화 타입 분류 (가벼운 인사/감사/작별 등)
-        conv_type = self.classifier.classify(question)
-
-        # 일상 대화 처리
-        if conv_type in ["greeting", "thanks", "goodbye", "feature_inquiry"]:
-            casual_response = self.handle_casual_conversation(conv_type, question)
-            return casual_response, {"success": True, "conversation_type": conv_type}
-
-        # 입력 검증
+        # 필요 시 재검증 (rag_answer에서 이미 검증했지만 방어적으로 한 번 더)
         is_valid, error_msg, validation_metadata = self.validate_input(question, user_id)
         if not is_valid:
             return error_msg, validation_metadata
@@ -577,16 +355,6 @@ AI: "선배 포트폴리오에는 NestJS를 직접 사용한 사례는 아직 �
         """일반 멘토 모드 응답 생성 (DB에 관련 자료 없을 때)"""
 
         metadata: Dict[str, Any] = {"mode": "general"}
-
-        # 대화 타입 분류
-        conv_type = self.classifier.classify(question)
-
-        # 일상 대화 처리
-        if conv_type in ["greeting", "thanks", "goodbye", "feature_inquiry"]:
-            casual_response = self.handle_casual_conversation(conv_type, question)
-            metadata["conversation_type"] = conv_type
-            metadata["success"] = True
-            return casual_response, metadata
 
         clean_question = self.pattern_validator.sanitize_input(question)
 
@@ -885,39 +653,33 @@ def _ensure_vector_store_initialized() -> None:
     index_example_documents()
 
 
+# 공부/진로/포트폴리오 관련 질문인지 간단히 검사
+_STUDY_KEYWORD_PATTERN = re.compile(
+    r'(공부|진로|포트폴리오|전공|수업|과목|개발|알고리즘|코딩|프로그래밍|과제|취업|커리어|스택|언어|프로젝트)'
+)
+
+
+def _is_study_related(question: str) -> bool:
+    text = (question or "").strip()
+    if not text:
+        return False
+    return _STUDY_KEYWORD_PATTERN.search(text) is not None
+
+
 # ===== 외부 API (다층 방어 시스템 적용) =====
 def rag_answer(question: str, k: int = 3, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    2단계 방어 시스템 + Intent Router가 적용된 안전한 RAG 답변 생성.
+    2단계 방어 시스템이 적용된 안전한 RAG 답변 생성.
 
     동작 방식:
-    1) 일상 대화(인사/감사/작별/기능문의)는 즉시 친근하게 응답
-    2) Layer 1: 패턴 매칭으로 명백한 공격 차단
-    3) Layer 2: LLM Guard로 맥락 기반 악의적 의도 평가
-    4) Intent Router:
-       - intent == concept_explanation: 개념설명 요청 정중히 컷
-       - intent == casual: 가벼운 잡담으로 응답
-    5) 벡터 검색 결과가 충분히 관련 있으면 RAG 모드
-    6) 벡터 검색 결과가 거의 없으면 일반 멘토 모드
+    1) 입력 검증 (악성 입력 차단)
+    2) 질문이 공부/진로/포트폴리오 관련이 아니면 즉시 정중히 거절
+    3) 벡터 검색 결과가 충분히 관련 있으면 RAG 모드
+    4) 벡터 검색 결과가 거의 없으면 일반 멘토 모드
     """
     _ensure_vector_store_initialized()
 
     security_metadata: Dict[str, Any] = {}
-
-    # 0) 대화 타입 먼저 분류 (일상 대화면 검색 스킵)
-    conv_type = defense_system.classifier.classify(question)
-
-    if conv_type in ["greeting", "thanks", "goodbye", "feature_inquiry"]:
-        casual_response = defense_system.handle_casual_conversation(conv_type, question)
-        return {
-            "answer": casual_response,
-            "sources": [],
-            "security_metadata": {
-                "success": True,
-                "conversation_type": conv_type,
-                "mode": "casual",
-            },
-        }
 
     # 1) 입력 검증 (악성 입력 차단)
     is_valid, error_msg, validation_metadata = defense_system.validate_input(question, user_id)
@@ -929,28 +691,15 @@ def rag_answer(question: str, k: int = 3, user_id: Optional[str] = None) -> Dict
             "security_metadata": security_metadata,
         }
 
-    # 2) LLM Intent Router로 고수준 intent 분류
-    intent, intent_details = defense_system.intent_router.classify_intent(question)
-    security_metadata["intent"] = intent
-    security_metadata["intent_info"] = intent_details
-
-    # 2-1) 순수 개념 설명 요청인 경우 → 서비스 목적에 맞게 컷
-    if intent == "concept_explanation":
-        answer = defense_system.handle_intent_concept_explanation(question)
-        security_metadata["mode"] = "intent_block"
-        security_metadata["blocked_reason"] = "concept_explanation"
+    # 2) 공부/진로 관련 질문이 아니면 바로 컷
+    if not _is_study_related(question):
+        apology = (
+            "죄송하지만 저는 진로, 공부, 포트폴리오 등과 관련된 질문에만 도움을 드릴 수 있어요. "
+            "이와 관련된 구체적인 고민이나 질문이 있다면 말씀해 주세요."
+        )
+        security_metadata["mode"] = "out_of_scope"
         return {
-            "answer": answer,
-            "sources": [],
-            "security_metadata": security_metadata,
-        }
-
-    # 2-2) 캐주얼 대화 (배고파, 하하 등) → 가볍게 응답
-    if intent == "casual":
-        answer = defense_system.handle_intent_casual(question)
-        security_metadata["mode"] = "casual_intent"
-        return {
-            "answer": answer,
+            "answer": apology,
             "sources": [],
             "security_metadata": security_metadata,
         }
@@ -993,7 +742,7 @@ def rag_answer(question: str, k: int = 3, user_id: Optional[str] = None) -> Dict
         }
 
     else:
-        # 일반 멘토 모드: LLM 지식 기반 조언 (하지만 개념설명은 위에서 이미 컷)
+        # 일반 멘토 모드: LLM 지식 기반 조언
         general_answer, general_metadata = defense_system.generate_general_response(
             question=question,
             user_id=user_id,
