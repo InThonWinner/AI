@@ -147,3 +147,5 @@ def check_api_status() -> dict:
         "guard_model": GUARD_MODEL,
     }
     return status
+import os
+print("DEBUG >>> GOOGLE_API_KEY 존재?", bool(os.getenv("GOOGLE_API_KEY")))

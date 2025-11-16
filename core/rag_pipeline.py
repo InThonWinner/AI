@@ -1018,7 +1018,7 @@ def get_context_from_db(question: str, k: int = 3) -> str:
 
     context_chunks: List[str] = []
     for doc, score in matches:
-        if score >= MIN_CONTEXT_SIMILITY:
+        if score >= MIN_CONTEXT_SIMILARITY:
             txt = (doc.text or "").strip()
             if txt:
                 context_chunks.append(txt)
