@@ -28,7 +28,7 @@ if not API_KEY:
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")          # 하드코딩: 기본 답변 생성 모델
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-004")  # 하드코딩: 기본 임베딩 모델
 GUARD_MODEL = os.getenv("GUARD_MODEL", "gemini-2.0-flash-lite")       # 하드코딩: Guard LLM용 경량 모델
-EMBEDDING_DIM = 768  # 하드코딩: text-embedding-004의 벡터 차원 수
+EMBEDDING_DIM = 768  # 하드코딩...
 
 # Gemini 클라이언트 생성
 client = genai.Client(api_key=API_KEY)
@@ -124,7 +124,6 @@ def call_guard_llm(prompt: str) -> str:
             model=GUARD_MODEL,
             contents=contents,
         )
-        # 모델이 JSON 문자열을 돌려준다는 가정
         return resp.text or '{"is_malicious": false, "reason": "Empty response", "confidence": 0.0}'
     except Exception as e:
         logger.error(f"Guard LLM error: {e}")

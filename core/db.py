@@ -5,18 +5,16 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# .env ÀĞ±â
+# .env ë¶ˆëŸ¬ì˜¤ê¸°
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL is None:
-    raise RuntimeError("DATABASE_URL È¯°æº¯¼ö°¡ ¼³Á¤µÇ¾î ÀÖÁö ¾Ê½À´Ï´Ù.")
+    raise RuntimeError("DATABASE_URL í™˜ê²½ë³€ìˆ˜ê°€ ì„¤ì •ë˜ì–´ìˆì§€ ì•ŠìŠµë‹ˆë‹¤.")
 
-# SQLAlchemy ¿£Áø »ı¼º
+# SQLAlchemy
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
-# ¼¼¼Ç ÆÑÅä¸®
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base Å¬·¡½º
 Base = declarative_base()

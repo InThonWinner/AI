@@ -9,12 +9,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import uvicorn
 
-from core.rag_pipeline import (
-    generate_rag_response,
-    get_context_from_db,
-    CHROMA_PATH,
-)
-from core.llm_utils import client as gemini_client
+from core.rag_pipeline import rag_answer
+from core.llm_utils import client as gemini_client, check_api_status
 
 load_dotenv()
 
@@ -30,10 +26,7 @@ async def lifespan(app: FastAPI):
     else:
         print("Gemini 클라이언트 로드 성공")
 
-    # ChromaDB 경로 확인
-    if not os.path.exists(CHROMA_PATH):
-        print(f"ChromaDB 데이터 폴더('{CHROMA_PATH}')가 없습니다.")
-        print("RAG 기능을 사용하려면 'python ingest_db.py'를 먼저 실행하세요.")
+    # (예전 ChromaDB 경로 체크는 이제 안 씀)
 
     yield
 
@@ -43,8 +36,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Gemini RAG Microservice",
-    description="NestJS에서 호출할 LLM 처리 백엔드 마이크로서비스입니다.",
+    title="InThon Mentor RAG Service",
+    description="NestJS에서 호출할 LLM 기반 선배 멘토링 RAG 백엔드입니다.",
     lifespan=lifespan,
 )
 
@@ -59,7 +52,7 @@ async def root() -> str:
     <html lang="ko">
     <head>
         <meta charset="UTF-8" />
-        <title>Gemini RAG Chat</title>
+        <title>Mentor RAG Chat</title>
         <style>
             body { font-family: Arial, sans-serif; margin: 40px; }
             #log { border: 1px solid #ccc; padding: 16px; height: 320px; overflow-y: auto; margin-bottom: 16px; background: #fafafa; }
@@ -70,7 +63,7 @@ async def root() -> str:
         </style>
     </head>
     <body>
-        <h1>Gemini RAG Chat</h1>
+        <h1>Mentor RAG Chat</h1>
         <div id="log"></div>
         <textarea id="question" rows="3" placeholder="질문을 입력하세요"></textarea>
         <button onclick="sendQuestion()">전송</button>
@@ -116,7 +109,10 @@ async def root() -> str:
 @app.get("/health")
 async def health_check():
     """API 헬스 체크 엔드포인트."""
-    return {"status": "OK"}
+    return {
+        "status": "OK",
+        "llm": check_api_status(),
+    }
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -127,33 +123,47 @@ async def favicon():
 
 class ChatRequest(BaseModel):
     question: str
+    # 필요하면 카테고리 필터도 받을 수 있음
+    # categories: list[str] | None = None
 
 
 class ChatResponse(BaseModel):
     answer: str
+    # 어떤 글들이 컨텍스트로 쓰였는지 간단히 문자열로 반환
     sources: list[str]
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
     """
-    사용자의 질문을 받아 RAG 파이프라인을 수행하고 답변을 반환한다.
+    사용자의 질문을 받아 DB 기반 RAG 파이프라인을 수행하고 답변을 반환한다.
     """
     try:
-        context = get_context_from_db(req.question)
-        answer_text = generate_rag_response(req.question, context)
+        # rag_answer는 { answer, sources, security_metadata } 형태의 dict를 반환
+        result = rag_answer(
+            question=req.question,
+            # allowed_categories=req.categories  # 필요하면 나중에
+        )
 
-        if context.strip():
-            sources = ["ChromaDB 검색 결과"]
-        else:
-            sources = []
+        answer_text = result.get("answer", "")
+
+        # result["sources"]는 list[dict] 형태임
+        sources_meta = result.get("sources", []) or []
+
+        sources: list[str] = []
+        for ctx in sources_meta:
+            title = ctx.get("title") or "(제목 없음)"
+            cid = ctx.get("postId")
+            cat = ctx.get("category")
+            sim = ctx.get("similarity")
+            # ChatResponse는 list[str] 요구하니까 사람이 읽기 좋게 포맷팅
+            sources.append(f"Post #{cid} [{cat}] {title} (sim={sim:.3f})")
 
         return ChatResponse(answer=answer_text, sources=sources)
 
     except Exception as e:
         print(f"RAG 처리 중 오류: {e}")
         raise HTTPException(status_code=500, detail="RAG가 정상적으로 동작하지 않습니다.")
-
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
